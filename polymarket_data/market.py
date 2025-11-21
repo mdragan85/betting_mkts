@@ -44,6 +44,11 @@ class PolymarketMarket:
     trades_yes: Optional[pd.DataFrame] = field(default=None, repr=False)
     trades_no: Optional[pd.DataFrame] = field(default=None, repr=False)
 
+    # from /price_history yes/no markets
+    price_history_yes: Optional[pd.DataFrame] = field(default=None, repr=False)
+    price_history_no:  Optional[pd.DataFrame] = field(default=None, repr=False)
+
+
     def __post_init__(self):
         # make sure end_date is a datetime if provided as string
         if isinstance(self.end_date, str):
@@ -275,6 +280,65 @@ class PolymarketMarket:
         df["p"] = df["p"].astype(float)
         df = df.sort_values("timestamp").reset_index(drop=True)
         return df[["timestamp", "p"]]
+
+    def load_price_history(self,
+                        client,
+                        hours_back: int = 24,
+                        fidelity: int = 5) -> None:
+        """
+        Fetch 5-minute price history (configurable fidelity) for both
+        YES and NO outcome tokens via /prices-history.
+        """
+        if not self.clob_token_yes or not self.clob_token_no:
+            raise ValueError("clob_token_yes/no not set. Use from_market_id() first.")
+
+        end_ts = int(time.time())
+        start_ts = end_ts - hours_back * 3600
+
+        # YES
+        self.price_history_yes = self._fetch_prices_history(
+            token_id  = self.clob_token_yes,
+            start_ts  = start_ts,
+            end_ts    = end_ts,
+            fidelity  = fidelity,
+        )
+
+        # NO
+        self.price_history_no = self._fetch_prices_history(
+            token_id  = self.clob_token_no,
+            start_ts  = start_ts,
+            end_ts    = end_ts,
+            fidelity  = fidelity,
+        )
+
+    @staticmethod
+    def _fetch_prices_history(token_id: str,
+                            start_ts: int,
+                            end_ts: int,
+                            fidelity: int = 5) -> pd.DataFrame:
+        """
+        Wrapper over /prices-history endpoint on CLOB API.
+        """
+        url = f"https://clob.polymarket.com/prices-history"
+        params = {
+            "mkt_id": token_id,
+            "startTs": start_ts,
+            "endTs": end_ts,
+            "fidelity": fidelity,  # minutes per interval
+        }
+        resp = httpx.get(url, params=params, timeout=10.0)
+        resp.raise_for_status()
+        raw = resp.json()
+
+        history = raw.get("history", [])
+        if not history:
+            return pd.DataFrame(columns=["timestamp", "price"])
+
+        df = pd.DataFrame(history)
+        df["timestamp"] = pd.to_datetime(df["t"], unit="s", utc=True)
+        df["price"] = df["p"].astype(float)
+        return df[["timestamp", "price"]].sort_values("timestamp").reset_index(drop=True)
+
 
     def build_yes_price_history(self) -> pd.DataFrame:
         """

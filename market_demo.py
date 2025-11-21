@@ -22,8 +22,7 @@ if __name__ == '__main__':
     print(f"NO  bid/ask: {pm.best_bid_no}  / {pm.best_ask_no}")
 
     # Load trades (tweak hours_back as needed)
-    pm.load_all_trades()
-    df_yes = pm.build_yes_price_history()
+    pm.load_price_history(client, hours_back=24, fidelity=5)
 
-    print(f"\nYES price history (combined YES+NO trades): {len(df_yes)} rows")
-    print(df_yes.head())
+    print(pm.price_history_yes.tail())   # will have YES 5-minute bars
+    print(pm.price_history_no.tail()) 
