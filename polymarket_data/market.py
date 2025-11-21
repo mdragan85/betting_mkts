@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 import json
 import time
@@ -281,67 +281,61 @@ class PolymarketMarket:
         df = df.sort_values("timestamp").reset_index(drop=True)
         return df[["timestamp", "p"]]
 
-    def load_price_history(self,
-                        client,
-                        hours_back: int = 24,
-                        fidelity: int = 5) -> None:
+    def load_price_history(
+        self,
+        client,                # kept for future, not used here
+        hours_back: int = 24,
+        fidelity: int = 5
+    ) -> None:
         """
-        Fetch 5-minute price history (configurable fidelity) for both
-        YES and NO outcome tokens via /prices-history.
+        Fetch price history for YES and NO via /prices-history, using
+        interval-based query (market + interval + fidelity).
         """
         if not self.clob_token_yes or not self.clob_token_no:
             raise ValueError("clob_token_yes/no not set. Use from_market_id() first.")
 
-        end_ts = int(time.time())
-        start_ts = end_ts - hours_back * 3600
+        # Map hours_back into one of the allowed intervals:
+        # 1m, 1h, 6h, 1d, 1w, max
+        if hours_back <= 1:
+            interval = "1h"
+        elif hours_back <= 6:
+            interval = "6h"
+        elif hours_back <= 24:
+            interval = "1d"
+        elif hours_back <= 24 * 7:
+            interval = "1w"
+        else:
+            interval = "max"
 
-        # YES
         self.price_history_yes = self._fetch_prices_history(
-            token_id  = self.clob_token_yes,
-            start_ts  = start_ts,
-            end_ts    = end_ts,
-            fidelity  = fidelity,
+            token_id=self.clob_token_yes,
+            interval=interval,
+            fidelity=fidelity,
         )
 
-        # NO
         self.price_history_no = self._fetch_prices_history(
-            token_id  = self.clob_token_no,
-            start_ts  = start_ts,
-            end_ts    = end_ts,
-            fidelity  = fidelity,
+            token_id=self.clob_token_no,
+            interval=interval,
+            fidelity=fidelity,
         )
 
     @staticmethod
-    def _fetch_prices_history(token_id: str,
-                            start_ts: int,
-                            end_ts: int,
-                            fidelity: int = 5) -> pd.DataFrame:
+    def _fetch_prices_history(
+        token_id: str,
+        interval: str,
+        fidelity: int = 5,
+    ) -> pd.DataFrame:
         """
-        Wrapper over /prices-history endpoint on CLOB API.
+        Wrapper over /prices-history.
 
-        fidelity = bucket size in minutes (1, 5, 15, 60, 1440)
+        Uses the interval-based mode:
+        market + interval + fidelity
         """
-        # Map minutes → Polymarket interval string
-        if fidelity == 1:
-            interval = "1m"
-        elif fidelity == 5:
-            interval = "5m"
-        elif fidelity == 15:
-            interval = "15m"
-        elif fidelity in (60, 30):  # be generous
-            interval = "1h"
-        elif fidelity >= 1440:
-            interval = "1d"
-        else:
-            # fall back to 5m if you pass some weird value
-            interval = "5m"
-
         url = "https://clob.polymarket.com/prices-history"
         params = {
-            "market": token_id,   # <-- correct name
-            "startTs": start_ts,
-            "endTs": end_ts,
-            "interval": interval, # <-- correct param
+            "market": token_id,
+            "interval": interval,   # e.g. "1d", "6h", "1w"
+            "fidelity": fidelity,   # minutes per bucket
         }
 
         resp = httpx.get(url, params=params, timeout=10.0)
@@ -353,53 +347,41 @@ class PolymarketMarket:
             return pd.DataFrame(columns=["timestamp", "price"])
 
         df = pd.DataFrame(history)
-        # Expect keys t (timestamp, seconds) and p (price)
+
+        # Expect 't' (epoch seconds) and 'p' (price)
+        if "t" not in df.columns or "p" not in df.columns:
+            raise RuntimeError(f"Unexpected /prices-history payload columns: {df.columns.tolist()}")
+
         df["timestamp"] = pd.to_datetime(df["t"], unit="s", utc=True)
         df["price"] = df["p"].astype(float)
-
         df = df[["timestamp", "price"]].sort_values("timestamp").reset_index(drop=True)
         return df
 
+    def price_history(self, market='yes'): 
+        """displays price history as downloaded from server"""
 
-    def build_yes_price_history(self) -> pd.DataFrame:
-        """
-        Build a DataFrame of YES prices, combining YES trades and NO trades,
-        with a column indicating the source side ("yes" or "no").
+        if market=='yes': 
+            px = self.price_history_yes.set_index('timestamp', drop=True)
 
-        YES trade:  yes_price = trade_price
-        NO trade:   yes_price = 1 - trade_price
-        """
-        if self.trades_yes is None and self.trades_no is None:
-            raise RuntimeError("Trades not loaded. Call load_all_trades() first.")
+        elif market=='no': 
+            px = self.price_history_no.set_index('timestamp', drop=True)
 
-        rows: List[dict] = []
+        # drop dupes
+        return px[~px.index.duplicated(keep="first")]
+    
+    def __repr__(self) -> str:
+        yes_bid, yes_ask = self.best_bid_yes, self.best_ask_yes
+        no_bid,  no_ask  = self.best_bid_no,  self.best_ask_no
 
-        # YES trades → direct
-        if self.trades_yes is not None and not self.trades_yes.empty:
-            for _, row in self.trades_yes.iterrows():
-                rows.append(
-                    {
-                        "timestamp": row["timestamp"],
-                        "yes_price": float(row["p"]),
-                        "source": "yes",
-                    }
-                )
+        # Format output cleanly even if values are missing
+        fmt = lambda x: f"{x:.3f}" if isinstance(x, (int, float)) else "N/A"
 
-        # NO trades → invert
-        if self.trades_no is not None and not self.trades_no.empty:
-            for _, row in self.trades_no.iterrows():
-                yes_price = 1.0 - float(row["p"])
-                rows.append(
-                    {
-                        "timestamp": row["timestamp"],
-                        "yes_price": yes_price,
-                        "source": "no",
-                    }
-                )
-
-        if not rows:
-            return pd.DataFrame(columns=["timestamp", "yes_price", "source"])
-
-        df = pd.DataFrame(rows)
-        df = df.sort_values("timestamp").reset_index(drop=True)
-        return df
+        return (
+            f"<PolymarketMarket id={self.market_id}>\n"
+            f"  Question: {self.question}\n"
+            f"  Expiry: {self.end_date.strftime('%Y-%m-%d %H:%M:%S %Z') if self.end_date else 'End date: N/A'}\n\n"
+            f"         bid      ask\n"
+            f" YES   {fmt(yes_bid):>6}   {fmt(yes_ask):>6}\n"
+            f" NO    {fmt(no_bid):>6}   {fmt(no_ask):>6}\n"
+            f" Active: {self.active}, Closed: {self.closed}"
+        )

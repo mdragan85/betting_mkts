@@ -1,0 +1,4 @@
+# Python cache / compiled files
+__pycache__/
+*.py[cod]
+*.pyo

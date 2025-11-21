@@ -9,20 +9,17 @@ if __name__ == '__main__':
 
     # Build object with full metadata
     pm = PolymarketMarket.from_market_id(client, market_id)
-    print(f"\nLoaded market: {pm.question}")
-    print(f"YES token: {pm.clob_token_yes}")
-    print(f"NO  token: {pm.clob_token_no}")
-    print(f"End date:  {pm.end_date}")
-    print(f"Active:    {pm.active}, Closed: {pm.closed}")
 
     # Refresh quotes
     pm.refresh_quotes(client)
-    print("\nCurrent quotes (approx):")
-    print(f"YES bid/ask: {pm.best_bid_yes} / {pm.best_ask_yes}")
-    print(f"NO  bid/ask: {pm.best_bid_no}  / {pm.best_ask_no}")
+
 
     # Load trades (tweak hours_back as needed)
-    pm.load_price_history(client, hours_back=24, fidelity=5)
+    pm.load_price_history(client, hours_back=24, fidelity=1)
 
-    print(pm.price_history_yes.tail())   # will have YES 5-minute bars
-    print(pm.price_history_no.tail()) 
+    print("\nYES history:")
+    print(pm.price_history_yes.tail(), len(pm.price_history_yes))
+
+    print("\nNO history:")
+    print(pm.price_history_no.tail(), len(pm.price_history_no))
+
