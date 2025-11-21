@@ -1,5 +1,6 @@
 from polymarket_data.client import PolymarketClient
 from datetime import datetime
+import json
 
 
 def parse_end_date(m):
@@ -24,7 +25,7 @@ def sort_markets_by_end_date(markets: list[dict]):
 
 
 def search_markets_text(client: PolymarketClient, text: str, limit_per_type: int = 50):
-    data = client.search_public(text, limit_per_type=limit_per_type)
+    data = client.search_public(text, limit_per_type=limit_per_type, optimized=False)
 
     events = data.get("events") or []
 
@@ -74,6 +75,10 @@ def main():
 
     print(f"\nFound {len(only_active)} markets for '{query}':\n")
     print_markets(only_active)
+
+    #output to JSON
+    with open("markets_snapshot.json", "w") as f:
+        json.dump(markets, f, indent=2)  
 
 
 if __name__ == "__main__":

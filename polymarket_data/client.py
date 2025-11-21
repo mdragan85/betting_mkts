@@ -12,6 +12,17 @@ class PolymarketClient:
         resp.raise_for_status()
         return resp.json()
 
+    def get_market_details(self, market_id: str) -> dict:
+        """
+        Fetch full market details including clobTokenIds, bestBid, bestAsk, etc.
+        """
+        resp = self._client.get("/markets", params={"id": market_id})
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, list):
+            return data[0]
+        return data
+
 
     def search_public(self, query: str, limit_per_type: int = 50, optimized: bool = True):
         """
@@ -32,3 +43,5 @@ class PolymarketClient:
         resp = self._client.get("/public-search", params=params)
         resp.raise_for_status()
         return resp.json()
+
+
