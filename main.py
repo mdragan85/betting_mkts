@@ -77,9 +77,8 @@ def main():
     print_markets(only_active)
 
     #output to JSON
-    with open("markets_snapshot.json", "w") as f:
+    with open("examples\markets_snapshot.json", "w") as f:
         json.dump(markets, f, indent=2)  
-
 
 if __name__ == "__main__":
     main()
