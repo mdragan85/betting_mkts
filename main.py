@@ -1,6 +1,27 @@
 from polymarket_data.client import PolymarketClient
+from datetime import datetime
 
-from polymarket_data.client import PolymarketClient
+
+def parse_end_date(m):
+    """Safely parse endDate into a datetime object, or return None."""
+    raw = m.get("endDate")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def sort_markets_by_end_date(markets: list[dict]):
+    """Return list sorted in ascending order by endDate."""
+    # Markets with valid dates first, invalid dates last
+    markets_sorted = sorted(
+        markets,
+        key=lambda m: (parse_end_date(m) is None, parse_end_date(m))
+    )
+    return markets_sorted
+
 
 def search_markets_text(client: PolymarketClient, text: str, limit_per_type: int = 50):
     data = client.search_public(text, limit_per_type=limit_per_type)
@@ -43,12 +64,16 @@ def main():
 
     markets = search_markets_text(client, query, limit_per_type=25)
 
-    if not markets:
+    # filter for only active markets & sort by end date
+    only_active = sort_markets_by_end_date([m for m in markets if m.get("active") and not m.get("closed")])
+
+    # sort in ascending by 
+    if not only_active:
         print("No markets found for that query.")
         return
 
-    print(f"\nFound {len(markets)} markets for '{query}':\n")
-    print_markets(markets)
+    print(f"\nFound {len(only_active)} markets for '{query}':\n")
+    print_markets(only_active)
 
 
 if __name__ == "__main__":
