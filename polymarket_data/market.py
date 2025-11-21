@@ -318,14 +318,32 @@ class PolymarketMarket:
                             fidelity: int = 5) -> pd.DataFrame:
         """
         Wrapper over /prices-history endpoint on CLOB API.
+
+        fidelity = bucket size in minutes (1, 5, 15, 60, 1440)
         """
-        url = f"https://clob.polymarket.com/prices-history"
+        # Map minutes → Polymarket interval string
+        if fidelity == 1:
+            interval = "1m"
+        elif fidelity == 5:
+            interval = "5m"
+        elif fidelity == 15:
+            interval = "15m"
+        elif fidelity in (60, 30):  # be generous
+            interval = "1h"
+        elif fidelity >= 1440:
+            interval = "1d"
+        else:
+            # fall back to 5m if you pass some weird value
+            interval = "5m"
+
+        url = "https://clob.polymarket.com/prices-history"
         params = {
-            "mkt_id": token_id,
+            "market": token_id,   # <-- correct name
             "startTs": start_ts,
             "endTs": end_ts,
-            "fidelity": fidelity,  # minutes per interval
+            "interval": interval, # <-- correct param
         }
+
         resp = httpx.get(url, params=params, timeout=10.0)
         resp.raise_for_status()
         raw = resp.json()
@@ -335,9 +353,12 @@ class PolymarketMarket:
             return pd.DataFrame(columns=["timestamp", "price"])
 
         df = pd.DataFrame(history)
+        # Expect keys t (timestamp, seconds) and p (price)
         df["timestamp"] = pd.to_datetime(df["t"], unit="s", utc=True)
         df["price"] = df["p"].astype(float)
-        return df[["timestamp", "price"]].sort_values("timestamp").reset_index(drop=True)
+
+        df = df[["timestamp", "price"]].sort_values("timestamp").reset_index(drop=True)
+        return df
 
 
     def build_yes_price_history(self) -> pd.DataFrame:
