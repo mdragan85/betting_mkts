@@ -12,14 +12,6 @@ if __name__ == '__main__':
 
     # Refresh quotes
     pm.refresh_quotes(client)
-
-
-    # Load trades (tweak hours_back as needed)
     pm.load_price_history(client, hours_back=24, fidelity=1)
 
-    print("\nYES history:")
-    print(pm.price_history_yes.tail(), len(pm.price_history_yes))
-
-    print("\nNO history:")
-    print(pm.price_history_no.tail(), len(pm.price_history_no))
-
+    print(pm)
