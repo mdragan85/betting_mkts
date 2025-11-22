@@ -1,5 +1,5 @@
 from polymarket_data.client import PolymarketClient
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 
@@ -65,20 +65,28 @@ def main():
 
     markets = search_markets_text(client, query, limit_per_type=25)
 
-    # filter for only active markets & sort by end date
-    only_active = sort_markets_by_end_date([m for m in markets if m.get("active") and not m.get("closed")])
+    # Define your date range (example: next 7 days)
+    start_date = datetime(2025, 11, 1, tzinfo=timezone.utc)
+    end_date   = datetime(2025, 11, 23, tzinfo=timezone.utc)
+
+    filtered = [
+        m for m in markets
+        if (d := parse_end_date(m)) and start_date <= d <= end_date
+    ]
+
+    sorted_filtered = sort_markets_by_end_date(filtered)
 
     # sort in ascending by 
-    if not only_active:
+    if not sorted_filtered:
         print("No markets found for that query.")
         return
 
-    print(f"\nFound {len(only_active)} markets for '{query}':\n")
-    print_markets(only_active)
+    print(f"\nFound {len(sorted_filtered)} markets for '{query}':\n")
+    print_markets(sorted_filtered)
 
     #output to JSON
     with open("examples\markets_snapshot.json", "w") as f:
-        json.dump(markets, f, indent=2)  
+        json.dump(sorted_filtered, f, indent=2)  
 
 if __name__ == "__main__":
     main()

@@ -146,58 +146,65 @@ class PolymarketMarket:
     def load_price_history(
         self,
         client,                # kept for future, not used here
-        hours_back: int = 24,
-        fidelity: int = 5
+        hours_back: int = 48,
+        fidelity: int = 5,
     ) -> None:
         """
         Fetch price history for YES and NO via /prices-history, using
-        interval-based query (market + interval + fidelity).
+        startTs/endTs anchored on the market's end_date.
+
+        If end_date is in the future or missing, we anchor on "now".
         """
         if not self.clob_token_yes or not self.clob_token_no:
             raise ValueError("clob_token_yes/no not set. Use from_market_id() first.")
 
-        # Map hours_back into one of the allowed intervals:
-        # 1m, 1h, 6h, 1d, 1w, max
-        if hours_back <= 1:
-            interval = "1h"
-        elif hours_back <= 6:
-            interval = "6h"
-        elif hours_back <= 24:
-            interval = "1d"
-        elif hours_back <= 24 * 7:
-            interval = "1w"
+        # Decide what we consider "window end"
+        now_utc = datetime.now(timezone.utc)
+        if self.end_date is not None:
+            # don't go past now; for future-expiring markets data only exists up to now
+            window_end_dt = min(self.end_date, now_utc)
         else:
-            interval = "max"
+            window_end_dt = now_utc
+
+        window_start_dt = window_end_dt - timedelta(hours=hours_back)
+
+        start_ts = int(window_start_dt.timestamp())
+        end_ts   = int(window_end_dt.timestamp())
 
         self.price_history_yes = self._fetch_prices_history(
             token_id=self.clob_token_yes,
-            interval=interval,
+            start_ts=start_ts,
+            end_ts=end_ts,
             fidelity=fidelity,
         )
 
         self.price_history_no = self._fetch_prices_history(
             token_id=self.clob_token_no,
-            interval=interval,
+            start_ts=start_ts,
+            end_ts=end_ts,
             fidelity=fidelity,
         )
+
+
 
     @staticmethod
     def _fetch_prices_history(
         token_id: str,
-        interval: str,
+        start_ts: int,
+        end_ts: int,
         fidelity: int = 5,
     ) -> pd.DataFrame:
         """
-        Wrapper over /prices-history.
+        Wrapper over /prices-history using explicit time window:
 
-        Uses the interval-based mode:
-        market + interval + fidelity
+        market + startTs + endTs + fidelity
         """
         url = "https://clob.polymarket.com/prices-history"
         params = {
-            "market": token_id,
-            "interval": interval,   # e.g. "1d", "6h", "1w"
-            "fidelity": fidelity,   # minutes per bucket
+            "market": token_id,   # NOTE: param name is 'market', not 'mkt_id'
+            "startTs": start_ts,
+            "endTs": end_ts,
+            "fidelity": fidelity,
         }
 
         resp = httpx.get(url, params=params, timeout=10.0)
@@ -218,6 +225,8 @@ class PolymarketMarket:
         df["price"] = df["p"].astype(float)
         df = df[["timestamp", "price"]].sort_values("timestamp").reset_index(drop=True)
         return df
+
+        
 
     def price_history(self, market='yes'): 
         """displays price history as downloaded from server"""
